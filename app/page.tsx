@@ -3,13 +3,39 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { TelegramWebAppUser } from '@/telegram-webapp.d';
 
-// Определение типа устройства
-function isMobileDevice(): boolean {
-  if (typeof window === 'undefined') return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  );
-}
+// Типы анкет
+type QuestionnaireType = 'infant' | 'child' | 'woman' | 'man';
+
+const questionnaireTypes = [
+  { 
+    type: 'infant' as QuestionnaireType, 
+    title: 'Для младенцев', 
+    description: 'До 1 года',
+    icon: '👶',
+    color: 'from-pink-400 to-pink-600'
+  },
+  { 
+    type: 'child' as QuestionnaireType, 
+    title: 'Для детей', 
+    description: '1-12 лет',
+    icon: '👦',
+    color: 'from-blue-400 to-blue-600'
+  },
+  { 
+    type: 'woman' as QuestionnaireType, 
+    title: 'Для женщин', 
+    description: 'Взрослые',
+    icon: '👩',
+    color: 'from-purple-400 to-purple-600'
+  },
+  { 
+    type: 'man' as QuestionnaireType, 
+    title: 'Для мужчин', 
+    description: 'Взрослые',
+    icon: '👨',
+    color: 'from-green-400 to-green-600'
+  },
+];
 
 // Иконка Telegram
 function TelegramIcon({ className }: { className?: string }) {
@@ -25,6 +51,8 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showQuestionnaireSelector, setShowQuestionnaireSelector] = useState(false);
+  const [selectedType, setSelectedType] = useState<QuestionnaireType | null>(null);
 
   // Проверка auth_token в URL при загрузке
   useEffect(() => {
@@ -149,8 +177,98 @@ export default function HomePage() {
 
         {/* Main content */}
         <main className="max-w-md mx-auto">
-          {user ? (
-            // Авторизованный пользователь
+          {/* Выбор типа анкеты */}
+          {showQuestionnaireSelector && user && !selectedType && (
+            <div className="card-wellness animate-fade-in mb-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-medical-900">
+                  Выберите тип анкеты
+                </h2>
+                <button
+                  onClick={() => setShowQuestionnaireSelector(false)}
+                  className="text-medical-400 hover:text-medical-600"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                {questionnaireTypes.map((q) => (
+                  <button
+                    key={q.type}
+                    onClick={() => setSelectedType(q.type)}
+                    className={`p-4 rounded-xl bg-gradient-to-br ${q.color} text-white text-center transition-transform hover:scale-105 active:scale-95`}
+                  >
+                    <div className="text-3xl mb-2">{q.icon}</div>
+                    <div className="font-semibold">{q.title}</div>
+                    <div className="text-xs opacity-80">{q.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Сообщение о выбранной анкете */}
+          {selectedType && user && (
+            <div className="card-wellness animate-fade-in mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-medical-900">
+                  {questionnaireTypes.find(q => q.type === selectedType)?.title}
+                </h2>
+                <button
+                  onClick={() => {
+                    setSelectedType(null);
+                    setShowQuestionnaireSelector(false);
+                  }}
+                  className="text-medical-400 hover:text-medical-600"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="bg-blue-50 rounded-xl p-4 mb-4">
+                <p className="text-medical-700 text-sm">
+                  Анкета будет предзаполнена вашими данными из Telegram:
+                </p>
+                <ul className="mt-2 text-sm text-medical-600">
+                  <li>• Имя: {user.first_name}</li>
+                  {user.last_name && <li>• Фамилия: {user.last_name}</li>}
+                  {user.username && <li>• Telegram: @{user.username}</li>}
+                </ul>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4">
+                <p className="text-yellow-800 text-sm">
+                  <strong>Важно:</strong> Полная версия анкеты находится в разработке. 
+                  Пока вы можете использовать старую версию приложения.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <a
+                  href={`https://anketazdoroyou.vercel.app/anketa?type=${selectedType}&name=${encodeURIComponent(user.first_name)}&lastName=${encodeURIComponent(user.last_name || '')}&telegram=${encodeURIComponent(user.username || '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary w-full block text-center"
+                >
+                  Открыть анкету
+                </a>
+                <button
+                  onClick={() => setSelectedType(null)}
+                  className="btn-secondary w-full"
+                >
+                  Выбрать другой тип
+                </button>
+              </div>
+            </div>
+          )}
+
+          {user && !showQuestionnaireSelector && !selectedType && (
+            // Авторизованный пользователь - профиль
             <div className="card-wellness text-center animate-fade-in">
               {/* Аватар */}
               <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
@@ -185,7 +303,10 @@ export default function HomePage() {
 
               {/* Действия */}
               <div className="space-y-3">
-                <button className="btn-primary w-full">
+                <button 
+                  onClick={() => setShowQuestionnaireSelector(true)}
+                  className="btn-primary w-full"
+                >
                   Заполнить анкету
                 </button>
                 <button 
@@ -201,7 +322,9 @@ export default function HomePage() {
                 ID: {user.id}
               </p>
             </div>
-          ) : (
+          )}
+
+          {!user && (
             // Неавторизованный пользователь
             <div className="card-wellness text-center animate-fade-in">
               {/* Иконка */}
