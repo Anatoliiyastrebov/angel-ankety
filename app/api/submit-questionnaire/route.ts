@@ -1,13 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    const contentType = request.headers.get('content-type') || '';
     
-    const message = formData.get('message') as string;
-    const userId = formData.get('userId') as string;
-    const username = formData.get('username') as string;
-    const type = formData.get('type') as string;
+    let message: string;
+    let userId: string;
+    let username: string;
+    let type: string;
+    let files: { name: string; data: Buffer; type: string }[] = [];
+
+    // Обработка FormData (с файлами)
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData();
+      
+      message = formData.get('message') as string;
+      userId = formData.get('userId') as string;
+      username = formData.get('username') as string;
+      type = formData.get('type') as string;
+
+      // Собираем файлы
+      for (const [key, value] of formData.entries()) {
+        if (key.startsWith('file_') && value instanceof Blob) {
+          const arrayBuffer = await value.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const fileName = value instanceof File ? value.name : `file_${key}.dat`;
+          files.push({
+            name: fileName,
+            data: buffer,
+            type: value.type || 'application/octet-stream',
+          });
+        }
+      }
+    } else {
+      // Обработка JSON (без файлов - обратная совместимость)
+      const body = await request.json();
+      message = body.message;
+      userId = String(body.userId);
+      username = body.username || '';
+      type = body.type;
+    }
 
     if (!message || !userId) {
       return NextResponse.json(
@@ -38,7 +73,6 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         chat_id: chatId,
         text: message,
-        parse_mode: 'HTML',
       }),
     });
 
@@ -47,28 +81,25 @@ export async function POST(request: NextRequest) {
     if (!result.ok) {
       console.error('Telegram API error:', result);
       return NextResponse.json(
-        { success: false, error: 'Failed to send message' },
+        { success: false, error: 'Failed to send message', details: result.description },
         { status: 500 }
       );
     }
 
-    // Собираем все файлы из formData
-    const files: File[] = [];
-    for (const [key, value] of formData.entries()) {
-      if (key.startsWith('file_') && value instanceof File) {
-        files.push(value);
-      }
-    }
-
     // Отправляем файлы в Telegram
+    let filesSuccessCount = 0;
     if (files.length > 0) {
       const sendDocumentUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
       
       for (const file of files) {
         try {
+          // Создаем FormData для отправки файла
           const fileFormData = new FormData();
           fileFormData.append('chat_id', chatId);
-          fileFormData.append('document', file);
+          
+          // Создаем Blob из Buffer
+          const blob = new Blob([file.data], { type: file.type });
+          fileFormData.append('document', blob, file.name);
           fileFormData.append('caption', `📎 Файл от пользователя ${username ? `@${username}` : `ID: ${userId}`}\n📋 Тип анкеты: ${type}`);
 
           const fileResponse = await fetch(sendDocumentUrl, {
@@ -78,7 +109,9 @@ export async function POST(request: NextRequest) {
 
           const fileResult = await fileResponse.json();
           
-          if (!fileResult.ok) {
+          if (fileResult.ok) {
+            filesSuccessCount++;
+          } else {
             console.error('Telegram API error sending file:', fileResult);
           }
         } catch (fileError) {
@@ -91,11 +124,12 @@ export async function POST(request: NextRequest) {
       success: true,
       messageId: result.result.message_id,
       filesCount: files.length,
+      filesSuccessCount,
     });
   } catch (error) {
     console.error('Error submitting questionnaire:', error);
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { success: false, error: 'Internal server error', details: String(error) },
       { status: 500 }
     );
   }
