@@ -1036,19 +1036,15 @@ Current status:
           
           const sanitizedFilename = sanitizeFilename(file.name);
           
-          // Create a new File object with sanitized name to ensure compatibility
-          // This preserves the original file content but with a safe filename
-          const fileBlob = file instanceof File ? file : new File([file], sanitizedFilename, { type: file.type || 'application/octet-stream' });
-          
-          // If filename changed, create a new File with the sanitized name
+          // Create a new File with sanitized name if needed
           let fileToSend: File;
-          if (fileBlob.name !== sanitizedFilename) {
-            fileToSend = new File([fileBlob], sanitizedFilename, {
-              type: fileBlob.type || 'application/octet-stream',
-              lastModified: fileBlob.lastModified || Date.now()
+          if (file.name !== sanitizedFilename) {
+            fileToSend = new File([file], sanitizedFilename, {
+              type: file.type || 'application/octet-stream',
+              lastModified: file.lastModified || Date.now()
             });
           } else {
-            fileToSend = fileBlob;
+            fileToSend = file;
           }
           
           const formData = new FormData();
