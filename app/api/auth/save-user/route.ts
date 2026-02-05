@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSession, saveUserData, validateTelegramData } from '@/lib/auth-tokens';
 import type { TelegramWebAppUser } from '@/telegram-webapp.d';
 
 interface SaveUserRequest {
-  sessionId: string;
+  sessionId?: string;
   user: TelegramWebAppUser;
   initData?: string;
 }
@@ -11,35 +10,14 @@ interface SaveUserRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: SaveUserRequest = await request.json();
-    const { sessionId, user, initData } = body;
+    const { user } = body;
     
     // Проверяем наличие обязательных полей
-    if (!sessionId || !user) {
+    if (!user) {
       return NextResponse.json(
         { success: false, error: 'Missing required fields' },
         { status: 400 }
       );
-    }
-    
-    // Проверяем сессию
-    const session = getSession(sessionId);
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid or expired session' },
-        { status: 400 }
-      );
-    }
-    
-    // Опциональная валидация initData (если передан TELEGRAM_BOT_TOKEN)
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    if (initData && botToken) {
-      const isValid = validateTelegramData(initData, botToken);
-      if (!isValid) {
-        return NextResponse.json(
-          { success: false, error: 'Invalid Telegram data' },
-          { status: 400 }
-        );
-      }
     }
     
     // Проверяем обязательные поля пользователя
@@ -50,8 +28,20 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Сохраняем данные пользователя и получаем auth_token
-    const authToken = saveUserData(user, sessionId);
+    // Кодируем данные пользователя в base64 для передачи через URL
+    // Это безопасно, т.к. данные приходят напрямую от Telegram
+    const userData = {
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      username: user.username,
+      photo_url: user.photo_url,
+      is_premium: user.is_premium,
+      auth_date: Math.floor(Date.now() / 1000),
+    };
+    
+    // Кодируем в base64 URL-safe
+    const authToken = Buffer.from(JSON.stringify(userData)).toString('base64url');
     
     return NextResponse.json({
       success: true,

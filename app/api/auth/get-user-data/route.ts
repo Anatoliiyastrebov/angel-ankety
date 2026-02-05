@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserData } from '@/lib/auth-tokens';
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,19 +12,39 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // Получаем данные пользователя (одноразовый токен)
-    const data = getUserData(authToken);
-    
-    if (!data) {
+    // Декодируем base64url токен
+    let user;
+    try {
+      const decoded = Buffer.from(authToken, 'base64url').toString('utf-8');
+      user = JSON.parse(decoded);
+    } catch {
       return NextResponse.json(
-        { success: false, error: 'Invalid or expired token' },
+        { success: false, error: 'Invalid token format' },
+        { status: 400 }
+      );
+    }
+    
+    // Проверяем срок действия (24 часа)
+    const authDate = user.auth_date;
+    const now = Math.floor(Date.now() / 1000);
+    if (!authDate || now - authDate > 24 * 60 * 60) {
+      return NextResponse.json(
+        { success: false, error: 'Token expired' },
+        { status: 400 }
+      );
+    }
+    
+    // Проверяем обязательные поля
+    if (!user.id || !user.first_name) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid user data' },
         { status: 400 }
       );
     }
     
     return NextResponse.json({
       success: true,
-      user: data.user,
+      user,
     });
   } catch (error) {
     console.error('Error getting user data:', error);
