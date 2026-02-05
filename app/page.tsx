@@ -100,7 +100,7 @@ export default function HomePage() {
 
       // Формируем URL для Telegram Web App
       // Short Name настраивается в BotFather (команда /newapp)
-      const telegramUrl = `https://t.me/${botName}/ankety?startapp=${sessionId}`;
+      const telegramUrl = `https://t.me/${botName}/auth?startapp=${sessionId}`;
 
       // Всегда используем прямой редирект - это лучше открывает Telegram приложение
       window.location.href = telegramUrl;
