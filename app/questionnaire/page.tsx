@@ -164,17 +164,12 @@ function QuestionnaireContent() {
         .replace(/>/g, '&gt;');
       
       const escapedAnswers = escapeHtml(answersText);
-      const escapedTitle = escapeHtml(title);
-      const escapedName = escapeHtml(`${user.first_name} ${user.last_name || ''}`);
       
-      // Формируем сообщение с HTML-ссылкой на профиль
+      // Формируем сообщение - только ответы + ссылка на профиль в конце
       const message = `🔔 <b>Новая анкета!</b>\n\n` +
-        `📋 Тип: ${escapedTitle}\n` +
-        `👤 Имя: <a href="tg://user?id=${user.id}">${escapedName}</a>\n` +
-        `🆔 Telegram: ${user.username ? `@${user.username}` : 'не указан'}\n` +
-        `🆔 ID: ${user.id}\n\n` +
         escapedAnswers +
-        (medicalFiles.length > 0 ? `\n\n📎 Прикреплено файлов: ${medicalFiles.length}` : '');
+        (medicalFiles.length > 0 ? `\n\n📎 Прикреплено файлов: ${medicalFiles.length}` : '') +
+        `\n\n👤 <a href="tg://user?id=${user.id}">Открыть профиль</a>`;
 
       // Создаем FormData для отправки файлов
       const submitData = new FormData();
