@@ -91,10 +91,11 @@ export default function HomePage() {
       }
 
       const sessionId = data.sessionId;
-      const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME;
+      const botName = process.env.NEXT_PUBLIC_TELEGRAM_BOT_NAME || '';
 
       if (!botName) {
-        throw new Error('Telegram bot не настроен');
+        console.error('NEXT_PUBLIC_TELEGRAM_BOT_NAME is not set');
+        throw new Error('Telegram bot не настроен. Добавьте NEXT_PUBLIC_TELEGRAM_BOT_NAME в переменные окружения Vercel и сделайте Redeploy.');
       }
 
       // Формируем URL для Telegram Web App
