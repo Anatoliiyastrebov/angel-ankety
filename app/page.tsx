@@ -102,18 +102,8 @@ export default function HomePage() {
       // Short Name должен быть "app" (настраивается в BotFather)
       const telegramUrl = `https://t.me/${botName}/app?startapp=${sessionId}`;
 
-      // На мобильных используем редирект, на десктопе - новое окно
-      if (isMobileDevice()) {
-        window.location.href = telegramUrl;
-      } else {
-        const popup = window.open(telegramUrl, '_blank', 'width=500,height=600');
-        
-        // Проверяем, открылось ли окно
-        if (!popup) {
-          // Если popup заблокирован, делаем редирект
-          window.location.href = telegramUrl;
-        }
-      }
+      // Всегда используем прямой редирект - это лучше открывает Telegram приложение
+      window.location.href = telegramUrl;
     } catch (err) {
       console.error('Login error:', err);
       setError(err instanceof Error ? err.message : 'Ошибка входа');
