@@ -1,39 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  console.log('=== Submit questionnaire started ===');
-  
   try {
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID;
 
-    console.log('Bot token exists:', !!botToken);
-    console.log('Chat ID exists:', !!chatId);
-
     if (!botToken || !chatId) {
-      console.error('Telegram credentials not configured');
       return NextResponse.json(
-        { success: false, error: 'Server configuration error: missing Telegram credentials' },
+        { success: false, error: 'Server configuration error' },
         { status: 500 }
       );
     }
 
-    // Определяем тип контента
     const contentType = request.headers.get('content-type') || '';
-    console.log('Content-Type:', contentType);
     
-    let message: string = '';
-    let userId: string = '';
-    let username: string = '';
-    let type: string = '';
-    let fileBuffers: { name: string; buffer: Buffer; mimeType: string }[] = [];
+    let message = '';
+    let userId = '';
+    let username = '';
+    let type = '';
+    const fileBuffers: { name: string; buffer: ArrayBuffer; mimeType: string }[] = [];
 
     if (contentType.includes('multipart/form-data')) {
-      console.log('Processing multipart/form-data');
-      
       const formData = await request.formData();
       
       message = (formData.get('message') as string) || '';
@@ -41,32 +31,23 @@ export async function POST(request: NextRequest) {
       username = (formData.get('username') as string) || '';
       type = (formData.get('type') as string) || '';
 
-      console.log('Message length:', message.length);
-      console.log('UserId:', userId);
-
-      // Собираем файлы
+      // Собираем файлы параллельно
+      const filePromises: Promise<void>[] = [];
       for (const [key, value] of formData.entries()) {
-        if (key.startsWith('file_')) {
-          console.log('Found file:', key, 'type:', typeof value);
-          if (value instanceof Blob) {
-            try {
-              const arrayBuffer = await value.arrayBuffer();
-              const buffer = Buffer.from(arrayBuffer);
-              const fileName = (value as File).name || `document_${key}`;
+        if (key.startsWith('file_') && value instanceof Blob) {
+          filePromises.push(
+            value.arrayBuffer().then(buffer => {
               fileBuffers.push({
-                name: fileName,
-                buffer: buffer,
+                name: (value as File).name || `document_${key}`,
+                buffer,
                 mimeType: value.type || 'application/octet-stream',
               });
-              console.log('File processed:', fileName, 'size:', buffer.length);
-            } catch (fileErr) {
-              console.error('Error processing file:', fileErr);
-            }
-          }
+            })
+          );
         }
       }
+      await Promise.all(filePromises);
     } else {
-      console.log('Processing JSON');
       const body = await request.json();
       message = body.message || '';
       userId = String(body.userId || '');
@@ -74,108 +55,72 @@ export async function POST(request: NextRequest) {
       type = body.type || '';
     }
 
-    if (!message) {
+    if (!message || !userId) {
       return NextResponse.json(
-        { success: false, error: 'Missing message' },
+        { success: false, error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: 'Missing userId' },
-        { status: 400 }
-      );
-    }
-
-    // Отправляем текстовое сообщение в Telegram
-    console.log('Sending message to Telegram...');
-    const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-    
-    const telegramResponse = await fetch(telegramUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-      }),
-    });
+    // Отправляем сообщение в Telegram
+    const telegramResponse = await fetch(
+      `https://api.telegram.org/bot${botToken}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: message }),
+      }
+    );
 
     const telegramResult = await telegramResponse.json();
-    console.log('Telegram response ok:', telegramResult.ok);
 
     if (!telegramResult.ok) {
-      console.error('Telegram API error:', telegramResult);
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Failed to send message to Telegram',
-          telegramError: telegramResult.description 
-        },
+        { success: false, error: 'Failed to send message', details: telegramResult.description },
         { status: 500 }
       );
     }
 
-    // Отправляем файлы
+    // Отправляем файлы параллельно
     let filesSuccess = 0;
     if (fileBuffers.length > 0) {
-      console.log('Sending', fileBuffers.length, 'files...');
-      const sendDocumentUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
-      
-      for (const file of fileBuffers) {
+      const filePromises = fileBuffers.map(async (file) => {
         try {
           const formDataForFile = new FormData();
           formDataForFile.append('chat_id', chatId);
-          
-          const blob = new Blob([file.buffer], { type: file.mimeType });
-          formDataForFile.append('document', blob, file.name);
+          formDataForFile.append('document', new Blob([file.buffer], { type: file.mimeType }), file.name);
           formDataForFile.append('caption', `📎 ${file.name}\n👤 ${username ? `@${username}` : `ID: ${userId}`}`);
 
-          const fileResponse = await fetch(sendDocumentUrl, {
+          const res = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
             method: 'POST',
             body: formDataForFile,
           });
-
-          const fileResult = await fileResponse.json();
-          console.log('File send result:', file.name, fileResult.ok);
-          
-          if (fileResult.ok) {
-            filesSuccess++;
-          }
-        } catch (fileErr) {
-          console.error('Error sending file:', file.name, fileErr);
+          const result = await res.json();
+          return result.ok ? 1 : 0;
+        } catch {
+          return 0;
         }
-      }
+      });
+
+      const results = await Promise.all(filePromises);
+      filesSuccess = results.reduce((a, b) => a + b, 0);
     }
 
-    console.log('=== Submit questionnaire completed ===');
-    
     return NextResponse.json({
       success: true,
       messageId: telegramResult.result.message_id,
-      filesTotal: fileBuffers.length,
+      filesCount: fileBuffers.length,
       filesSuccess,
     });
 
   } catch (error) {
-    console.error('=== Submit questionnaire ERROR ===');
-    console.error('Error:', error);
-    console.error('Error message:', error instanceof Error ? error.message : String(error));
-    console.error('Error stack:', error instanceof Error ? error.stack : 'no stack');
-    
     return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : String(error)
-      },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ status: 'ok', endpoint: 'submit-questionnaire' });
+  return NextResponse.json({ status: 'ok' });
 }
