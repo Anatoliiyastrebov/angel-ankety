@@ -35,5 +35,5 @@
     ".next/types/**/*.ts",
     "telegram-webapp.d.ts"
   ],
-  "exclude": ["node_modules", "src", "supabase", "dist", "api"]
+  "exclude": ["node_modules", "src/main.tsx", "src/App.tsx", "src/vite-pages", "supabase", "dist", "api"]
 }

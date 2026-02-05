@@ -241,21 +241,12 @@ export default function HomePage() {
                 </ul>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4">
-                <p className="text-yellow-800 text-sm">
-                  <strong>Важно:</strong> Полная версия анкеты находится в разработке. 
-                  Пока вы можете использовать старую версию приложения.
-                </p>
-              </div>
-              
               <div className="space-y-3">
                 <a
-                  href={`https://anketazdoroyou.vercel.app/anketa?type=${selectedType}&name=${encodeURIComponent(user.first_name)}&lastName=${encodeURIComponent(user.last_name || '')}&telegram=${encodeURIComponent(user.username || '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={`/questionnaire?type=${selectedType}`}
                   className="btn-primary w-full block text-center"
                 >
-                  Открыть анкету
+                  Начать заполнение
                 </a>
                 <button
                   onClick={() => setSelectedType(null)}
