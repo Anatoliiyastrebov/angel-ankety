@@ -56,8 +56,6 @@ function QuestionnaireContent() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [currentSection, setCurrentSection] = useState(0);
-  const [files, setFiles] = useState<File[]>([]);
 
   // Загрузка пользователя из localStorage
   useEffect(() => {
@@ -98,51 +96,44 @@ function QuestionnaireContent() {
     setAdditionalData(prev => ({ ...prev, [`${questionId}_additional`]: value }));
   }, []);
 
-  // Валидация секции
-  const validateSection = useCallback((sectionIndex: number): boolean => {
-    const section = sections[sectionIndex];
+  // Валидация всей формы
+  const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {};
 
-    section.questions.forEach(question => {
-      // Пропускаем скрытые вопросы
-      if (question.showIf && !shouldShowQuestion(question, formData)) {
-        return;
-      }
-
-      if (question.required) {
-        const value = formData[question.id];
-        if (!value || (Array.isArray(value) && value.length === 0) || 
-            (typeof value === 'string' && value.trim() === '')) {
-          newErrors[question.id] = 'Это поле обязательно';
+    sections.forEach(section => {
+      section.questions.forEach(question => {
+        // Пропускаем скрытые вопросы
+        if (question.showIf && !shouldShowQuestion(question, formData)) {
+          return;
         }
-      }
+
+        if (question.required) {
+          const value = formData[question.id];
+          if (!value || (Array.isArray(value) && value.length === 0) || 
+              (typeof value === 'string' && value.trim() === '')) {
+            newErrors[question.id] = 'Это поле обязательно';
+          }
+        }
+      });
     });
 
     setErrors(newErrors);
+    
+    // Прокрутка к первой ошибке
+    if (Object.keys(newErrors).length > 0) {
+      const firstErrorId = Object.keys(newErrors)[0];
+      const element = document.getElementById(`question-${firstErrorId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
     return Object.keys(newErrors).length === 0;
   }, [sections, formData]);
 
-  // Следующая секция
-  const handleNextSection = useCallback(() => {
-    if (validateSection(currentSection)) {
-      if (currentSection < sections.length - 1) {
-        setCurrentSection(prev => prev + 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-    }
-  }, [currentSection, sections.length, validateSection]);
-
-  // Предыдущая секция
-  const handlePrevSection = useCallback(() => {
-    if (currentSection > 0) {
-      setCurrentSection(prev => prev - 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [currentSection]);
-
   // Отправка анкеты
   const handleSubmit = useCallback(async () => {
-    if (!validateSection(currentSection)) return;
+    if (!validateForm()) return;
     if (!user) return;
 
     setIsSubmitting(true);
@@ -158,7 +149,6 @@ function QuestionnaireContent() {
         `🆔 ID: ${user.id}\n\n` +
         answersText;
 
-      // Отправляем в Telegram (нужно создать API endpoint)
       const response = await fetch('/api/submit-questionnaire', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,7 +171,7 @@ function QuestionnaireContent() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [currentSection, validateSection, user, sections, formData, additionalData, title, type]);
+  }, [validateForm, user, sections, formData, additionalData, title, type]);
 
   // Успешная отправка
   if (isSubmitted) {
@@ -224,9 +214,6 @@ function QuestionnaireContent() {
     );
   }
 
-  const currentSectionData = sections[currentSection];
-  const isLastSection = currentSection === sections.length - 1;
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-medical-50 to-white">
       <div className="container mx-auto px-4 py-6 max-w-2xl">
@@ -243,19 +230,9 @@ function QuestionnaireContent() {
           </button>
           <h1 className="text-2xl font-bold text-medical-900">{title}</h1>
           <p className="text-medical-600 mt-1">
-            Секция {currentSection + 1} из {sections.length}: {currentSectionData.title.ru}
+            Заполните все поля анкеты
           </p>
         </header>
-
-        {/* Progress */}
-        <div className="mb-8">
-          <div className="h-2 bg-medical-200 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-primary-600 transition-all duration-300"
-              style={{ width: `${((currentSection + 1) / sections.length) * 100}%` }}
-            />
-          </div>
-        </div>
 
         {/* Error message */}
         {errors.submit && (
@@ -264,67 +241,66 @@ function QuestionnaireContent() {
           </div>
         )}
 
-        {/* Questions */}
-        <div className="bg-white rounded-2xl shadow-sm border border-medical-200 p-6 mb-6">
-          <div className="space-y-6">
-            {currentSectionData.questions.map((question) => {
-              // Проверяем условие показа
-              if (question.showIf && !shouldShowQuestion(question, formData)) {
-                return null;
-              }
+        {/* All Sections */}
+        <div className="space-y-8">
+          {sections.map((section, sectionIndex) => (
+            <div 
+              key={section.id} 
+              className="bg-white rounded-2xl shadow-sm border border-medical-200 overflow-hidden"
+            >
+              {/* Section Header */}
+              <div className="bg-gradient-to-r from-primary-50 to-primary-100 px-6 py-4 border-b border-medical-200">
+                <h2 className="text-lg font-semibold text-medical-900">
+                  {sectionIndex + 1}. {section.title.ru}
+                </h2>
+              </div>
 
-              return (
-                <QuestionField
-                  key={question.id}
-                  question={question}
-                  value={formData[question.id] || (question.type === 'checkbox' ? [] : '')}
-                  onChange={(value) => handleFieldChange(question.id, value)}
-                  error={errors[question.id]}
-                  additionalValue={additionalData[`${question.id}_additional`] as string}
-                  onAdditionalChange={(value) => handleAdditionalChange(question.id, value)}
-                  formData={formData}
-                />
-              );
-            })}
-          </div>
+              {/* Section Questions */}
+              <div className="p-6 space-y-6">
+                {section.questions.map((question) => {
+                  // Проверяем условие показа
+                  if (question.showIf && !shouldShowQuestion(question, formData)) {
+                    return null;
+                  }
+
+                  return (
+                    <div key={question.id} id={`question-${question.id}`}>
+                      <QuestionField
+                        question={question}
+                        value={formData[question.id] || (question.type === 'checkbox' ? [] : '')}
+                        onChange={(value) => handleFieldChange(question.id, value)}
+                        error={errors[question.id]}
+                        additionalValue={additionalData[`${question.id}_additional`] as string}
+                        onAdditionalChange={(value) => handleAdditionalChange(question.id, value)}
+                        formData={formData}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* Navigation */}
-        <div className="flex gap-4">
-          {currentSection > 0 && (
-            <button
-              onClick={handlePrevSection}
-              className="btn-secondary flex-1"
-            >
-              Назад
-            </button>
-          )}
-          {isLastSection ? (
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="btn-primary flex-1"
-            >
-              {isSubmitting ? (
-                <>
-                  <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Отправка...
-                </>
-              ) : (
-                'Отправить анкету'
-              )}
-            </button>
-          ) : (
-            <button
-              onClick={handleNextSection}
-              className="btn-primary flex-1"
-            >
-              Далее
-            </button>
-          )}
+        {/* Submit Button */}
+        <div className="mt-8 pb-8">
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="btn-primary w-full py-4 text-lg"
+          >
+            {isSubmitting ? (
+              <span className="flex items-center justify-center">
+                <svg className="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Отправка...
+              </span>
+            ) : (
+              'Отправить анкету'
+            )}
+          </button>
         </div>
       </div>
     </div>
