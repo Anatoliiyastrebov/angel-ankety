@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
+import { useEffect, useState, useCallback, useMemo, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { TelegramWebAppUser } from '@/telegram-webapp.d';
 import {
@@ -56,6 +56,7 @@ function QuestionnaireContent() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [medicalFiles, setMedicalFiles] = useState<File[]>([]);
 
   // Загрузка пользователя из localStorage
   useEffect(() => {
@@ -89,11 +90,25 @@ function QuestionnaireContent() {
         return newErrors;
       });
     }
+    // Если ответ на вопрос о документах изменился на "нет", очищаем файлы
+    if (questionId === 'has_medical_documents' && value === 'no') {
+      setMedicalFiles([]);
+    }
   }, [errors]);
 
   // Обработка дополнительных полей
   const handleAdditionalChange = useCallback((questionId: string, value: string) => {
     setAdditionalData(prev => ({ ...prev, [`${questionId}_additional`]: value }));
+  }, []);
+
+  // Обработка загрузки файлов
+  const handleFilesChange = useCallback((files: File[]) => {
+    setMedicalFiles(prev => [...prev, ...files]);
+  }, []);
+
+  // Удаление файла
+  const handleRemoveFile = useCallback((index: number) => {
+    setMedicalFiles(prev => prev.filter((_, i) => i !== index));
   }, []);
 
   // Валидация всей формы
@@ -147,17 +162,24 @@ function QuestionnaireContent() {
         `👤 Имя: ${user.first_name} ${user.last_name || ''}\n` +
         `🆔 Telegram: ${user.username ? `@${user.username}` : 'не указан'}\n` +
         `🆔 ID: ${user.id}\n\n` +
-        answersText;
+        answersText +
+        (medicalFiles.length > 0 ? `\n\n📎 Прикреплено файлов: ${medicalFiles.length}` : '');
+
+      // Создаем FormData для отправки файлов
+      const submitData = new FormData();
+      submitData.append('message', message);
+      submitData.append('userId', String(user.id));
+      submitData.append('username', user.username || '');
+      submitData.append('type', type);
+      
+      // Добавляем файлы
+      medicalFiles.forEach((file, index) => {
+        submitData.append(`file_${index}`, file);
+      });
 
       const response = await fetch('/api/submit-questionnaire', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          userId: user.id,
-          username: user.username,
-          type,
-        }),
+        body: submitData,
       });
 
       if (!response.ok) {
@@ -171,7 +193,7 @@ function QuestionnaireContent() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [validateForm, user, sections, formData, additionalData, title, type]);
+  }, [validateForm, user, sections, formData, additionalData, title, type, medicalFiles]);
 
   // Успешная отправка
   if (isSubmitted) {
@@ -251,7 +273,7 @@ function QuestionnaireContent() {
               {/* Section Header */}
               <div className="bg-gradient-to-r from-primary-50 to-primary-100 px-6 py-4 border-b border-medical-200">
                 <h2 className="text-lg font-semibold text-medical-900">
-                  {sectionIndex + 1}. {section.title.ru}
+                  {section.title.ru}
                 </h2>
               </div>
 
@@ -273,6 +295,9 @@ function QuestionnaireContent() {
                         additionalValue={additionalData[`${question.id}_additional`] as string}
                         onAdditionalChange={(value) => handleAdditionalChange(question.id, value)}
                         formData={formData}
+                        medicalFiles={question.id === 'has_medical_documents' ? medicalFiles : undefined}
+                        onFilesChange={question.id === 'has_medical_documents' ? handleFilesChange : undefined}
+                        onRemoveFile={question.id === 'has_medical_documents' ? handleRemoveFile : undefined}
                       />
                     </div>
                   );
@@ -316,6 +341,9 @@ interface QuestionFieldProps {
   additionalValue?: string;
   onAdditionalChange?: (value: string) => void;
   formData: FormData;
+  medicalFiles?: File[];
+  onFilesChange?: (files: File[]) => void;
+  onRemoveFile?: (index: number) => void;
 }
 
 function QuestionField({ 
@@ -325,8 +353,12 @@ function QuestionField({
   error, 
   additionalValue,
   onAdditionalChange,
-  formData 
+  formData,
+  medicalFiles,
+  onFilesChange,
+  onRemoveFile,
 }: QuestionFieldProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const handleCheckboxChange = (optionValue: string, checked: boolean) => {
     const currentValues = Array.isArray(value) ? value : [];
@@ -369,6 +401,26 @@ function QuestionField({
     
     return false;
   }, [question, value]);
+
+  // Показывать загрузку файлов для вопроса о медицинских документах
+  const showFileUpload = question.id === 'has_medical_documents' && value === 'yes';
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0 && onFilesChange) {
+      onFilesChange(Array.from(files));
+    }
+    // Сбрасываем input чтобы можно было выбрать тот же файл снова
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Функция для удаления номера из label
+  const getLabelWithoutNumber = (label: string): string => {
+    // Удаляем паттерны типа "29. ", "1. " и т.д. в начале строки
+    return label.replace(/^\d+\.\s*/, '');
+  };
 
   const renderInput = () => {
     switch (question.type) {
@@ -458,17 +510,81 @@ function QuestionField({
     }
   };
 
+  // Форматирование размера файла
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-start gap-2">
         <span className="text-base font-medium text-medical-800">
-          {question.number && `${question.number}. `}
-          {question.label.ru}
+          {getLabelWithoutNumber(question.label.ru)}
         </span>
         {question.required && <span className="text-red-500">*</span>}
       </div>
 
       {renderInput()}
+
+      {/* Загрузка файлов для медицинских документов */}
+      {showFileUpload && onFilesChange && onRemoveFile && (
+        <div className="mt-4 p-4 bg-primary-50 rounded-lg border border-primary-200">
+          <p className="text-sm font-medium text-medical-700 mb-3">
+            Загрузите ваши анализы и/или УЗИ (любые форматы):
+          </p>
+          
+          {/* Список загруженных файлов */}
+          {medicalFiles && medicalFiles.length > 0 && (
+            <div className="space-y-2 mb-3">
+              {medicalFiles.map((file, index) => (
+                <div 
+                  key={index} 
+                  className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-medical-200"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-5 h-5 text-primary-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="text-sm text-medical-700 truncate">{file.name}</span>
+                    <span className="text-xs text-medical-500 flex-shrink-0">({formatFileSize(file.size)})</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onRemoveFile(index)}
+                    className="text-red-500 hover:text-red-700 p-1 flex-shrink-0"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Кнопка загрузки */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
+            accept="*/*"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-primary-300 rounded-lg text-primary-700 hover:bg-primary-50 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Добавить файл
+          </button>
+        </div>
+      )}
 
       {/* Дополнительное поле */}
       {showAdditionalField && onAdditionalChange && (

@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-interface SubmitRequest {
-  message: string;
-  userId: number;
-  username?: string;
-  type: string;
-}
-
 export async function POST(request: NextRequest) {
   try {
-    const body: SubmitRequest = await request.json();
-    const { message, userId, username, type } = body;
+    const formData = await request.formData();
+    
+    const message = formData.get('message') as string;
+    const userId = formData.get('userId') as string;
+    const username = formData.get('username') as string;
+    const type = formData.get('type') as string;
 
     if (!message || !userId) {
       return NextResponse.json(
@@ -30,7 +27,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Отправляем сообщение в Telegram
+    // Отправляем текстовое сообщение в Telegram
     const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
     
     const response = await fetch(telegramUrl, {
@@ -55,9 +52,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Собираем все файлы из formData
+    const files: File[] = [];
+    for (const [key, value] of formData.entries()) {
+      if (key.startsWith('file_') && value instanceof File) {
+        files.push(value);
+      }
+    }
+
+    // Отправляем файлы в Telegram
+    if (files.length > 0) {
+      const sendDocumentUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
+      
+      for (const file of files) {
+        try {
+          const fileFormData = new FormData();
+          fileFormData.append('chat_id', chatId);
+          fileFormData.append('document', file);
+          fileFormData.append('caption', `📎 Файл от пользователя ${username ? `@${username}` : `ID: ${userId}`}\n📋 Тип анкеты: ${type}`);
+
+          const fileResponse = await fetch(sendDocumentUrl, {
+            method: 'POST',
+            body: fileFormData,
+          });
+
+          const fileResult = await fileResponse.json();
+          
+          if (!fileResult.ok) {
+            console.error('Telegram API error sending file:', fileResult);
+          }
+        } catch (fileError) {
+          console.error('Error sending file to Telegram:', fileError);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       messageId: result.result.message_id,
+      filesCount: files.length,
     });
   } catch (error) {
     console.error('Error submitting questionnaire:', error);
