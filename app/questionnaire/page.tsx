@@ -157,13 +157,23 @@ function QuestionnaireContent() {
       // Формируем текст анкеты
       const answersText = formatQuestionnaireAnswers(sections, formData, additionalData as any, 'ru');
       
-      const message = `🔔 Новая анкета!\n\n` +
-        `📋 Тип: ${title}\n` +
-        `👤 Имя: ${user.first_name} ${user.last_name || ''}\n` +
+      // Экранируем HTML-символы в ответах
+      const escapeHtml = (text: string) => text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      
+      const escapedAnswers = escapeHtml(answersText);
+      const escapedTitle = escapeHtml(title);
+      const escapedName = escapeHtml(`${user.first_name} ${user.last_name || ''}`);
+      
+      // Формируем сообщение с HTML-ссылкой на профиль
+      const message = `🔔 <b>Новая анкета!</b>\n\n` +
+        `📋 Тип: ${escapedTitle}\n` +
+        `👤 Имя: <a href="tg://user?id=${user.id}">${escapedName}</a>\n` +
         `🆔 Telegram: ${user.username ? `@${user.username}` : 'не указан'}\n` +
-        `🆔 ID: ${user.id}\n` +
-        `👤 Профиль: tg://user?id=${user.id}\n\n` +
-        answersText +
+        `🆔 ID: ${user.id}\n\n` +
+        escapedAnswers +
         (medicalFiles.length > 0 ? `\n\n📎 Прикреплено файлов: ${medicalFiles.length}` : '');
 
       // Создаем FormData для отправки файлов
